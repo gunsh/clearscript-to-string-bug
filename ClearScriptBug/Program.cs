@@ -1,5 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Dynamic;
+using System.Linq;
 using Microsoft.ClearScript.V8;
 
 namespace ClearScriptBug
@@ -42,12 +44,44 @@ namespace ClearScriptBug
                 };
 
                 engine.AddHostObject("context", context);
+                engine.AddHostType("__helper", typeof(Helper));
+                engine.Execute("var $ = function(arg){return __helper._(arg);};");
 
-                Console.WriteLine(engine.Evaluate("context.Value.ToString()"));
+                Console.WriteLine(engine.Evaluate("$(context.Value).ToString()"));
             }
             catch (Exception exception)
             {
                 Console.WriteLine($"{exception.Message} Error testing {context.Value} [{context.Value.GetType().Name}]");
+            }
+        }
+
+        public static class Helper
+        {
+            public static object _(object o) => new Wrapped(o);
+
+            private class Wrapped : DynamicObject
+            {
+                private readonly object _o;
+
+                public Wrapped(object o) => _o = o;
+
+                public override IEnumerable<string> GetDynamicMemberNames() => _o.GetType().GetMethods().Select(method => method.Name);
+
+                public override bool TryInvokeMember(InvokeMemberBinder binder, object[] args, out object result)
+                {
+                    var method = _o.GetType().GetMethod(binder.Name, args.Select(arg => arg.GetType()).ToArray());
+
+                    if (method == null)
+                    {
+                        result = null;
+                        return false;
+                    }
+
+                    result = method.Invoke(_o, args);
+                    return true;
+                }
+
+                public override string ToString() => _o.ToString();
             }
         }
     }
